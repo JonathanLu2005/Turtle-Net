@@ -13,7 +13,7 @@ namespace ascii = boost::spirit::ascii;
 
 // Token types
 enum TokenType {
-    MOVEMENT,
+    MOVEMENT,   
     DIRECTION,
     PEN,
     LOOP,
@@ -21,7 +21,9 @@ enum TokenType {
     VALUE,
     COMMENT,
     PLAINTEXT,
-    WHITESPACE
+    WHITESPACE,
+    OPEN,
+    CLOSE
 };
 
 // Parser
@@ -29,33 +31,40 @@ class LogoParser {
 public:
     using Iterator = std::string::const_iterator;
 
-    // Lexer
-    qi::rule<std::string::iterator, std::string()> Movement = qi::lit("forward") | "back";
-    qi::rule<std::string::iterator, std::string()> Direction = qi::lit("left") | "right";
-    qi::rule<std::string::iterator, std::string()> Pen = qi::lit("penup") | "pendown";
-    qi::rule<std::string::iterator, std::string()> Origin = qi::lit("clearscreen") | "home";
-    qi::rule<std::string::iterator, float()> Value = qi::float_;
-    qi::rule<std::string::iterator, std::string()> Comment = qi::lit(';') >> *(qi::char_);
-    qi::rule<std::string::iterator, std::string()> Whitespace = +qi::space;
-    qi::rule<std::string::iterator, std::string()> Loop = qi::lit("repeat");
-
     // Grammars
-    qi::rule<std::string::iterator> MovementCommand;
-    qi::rule<std::string::iterator> DirectionCommand;
-    qi::rule<std::string::iterator> PenCommand;
-    qi::rule<std::string::iterator> OriginCommand;
-    qi::rule<std::string::iterator> LoopCommand;
-    qi::rule<std::string::iterator> CommentCommand;
-    qi::rule<std::string::iterator> Program;
+    qi::rule<Iterator, std::string(), ascii::space_type> Movement;
+    qi::rule<Iterator, std::string(), ascii::space_type> Direction;
+    qi::rule<Iterator, std::string(), ascii::space_type> Pen;
+    qi::rule<Iterator, std::string(), ascii::space_type> Origin;
+    qi::rule<Iterator, float(), ascii::space_type> Value;
+    qi::rule<Iterator, std::string(), ascii::space_type> Comment;
+
+    qi::rule<Iterator, ascii::space_type> MovementCommand;
+    qi::rule<Iterator, ascii::space_type> DirectionCommand;
+    qi::rule<Iterator, ascii::space_type> PenCommand;
+    qi::rule<Iterator, ascii::space_type> OriginCommand;
+    qi::rule<Iterator, ascii::space_type> LoopCommand;
+    qi::rule<Iterator, ascii::space_type> CommentCommand;
+    qi::rule<Iterator, ascii::space_type> Command;
+    qi::rule<Iterator, ascii::space_type> Program;
 
     LogoParser () {
-        MovementCommand = Movement >> Whitespace >> Value >> Whitespace;
-        DirectionCommand = Direction >> Whitespace >> Value >> Whitespace;
-        PenCommand = Pen >> Whitespace;
-        OriginCommand = Origin >> Whitespace;
-        LoopCommand = Loop >> Whitespace >> Value >> Whitespace >> '[' >> *(Program) >> ']' >> Whitespace;
-        CommentCommand = Comment >> Whitespace;
-        Program = *(MovementCommand | DirectionCommand | PenCommand | OriginCommand | LoopCommand | CommentCommand);
+        Movement = qi::lit("forward") | "back";
+        Direction = qi::lit("left") | "right";
+        Pen = qi::lit("penup") | "pendown";
+        Origin = qi::lit("clearscreen") | "home";
+        Value = qi::float_;
+        Comment = qi::lexeme[';' >> *(qi::char_ - '\n')];
+
+
+        MovementCommand = Movement >> Value;
+        DirectionCommand = Direction >> Value;
+        PenCommand = Pen;
+        OriginCommand = Origin;
+        LoopCommand = qi::lit("repeat") >> Value >> qi::lit('[') >> +Command >> qi::lit(']');
+        CommentCommand = Comment;
+        Command = MovementCommand | DirectionCommand | PenCommand | OriginCommand | LoopCommand | CommentCommand;
+        Program = +Command;
     }
 };
 
@@ -73,12 +82,26 @@ int main() {
     }
 
     // Access file
-    std::ifstream LogoCode(LogoPath);
+    std::ifstream LogoFile(LogoPath);
+    std::string LogoCode((std::istreambuf_iterator<char>(LogoFile)), std::istreambuf_iterator<char>());
     
     // If file exists
-    if (!LogoCode) {
+    if (!LogoFile) {
         std::cerr << "Error: Unable to open file" << std::endl;
         return 1;
+    }
+
+    // Instantiate parser
+    LogoParser Parser;
+    LogoParser::Iterator First = LogoCode.begin();
+    LogoParser::Iterator Last = LogoCode.end();
+    // Parse
+    bool ParseResult = qi::phrase_parse(First,Last,Parser.Program >> qi::eoi, ascii::space);
+
+    if (ParseResult && First == Last) {
+        std::cout << "Success" << std::endl;
+    } else {
+        std::cerr << "Fail" << std::endl;
     }
 
     return 0;
