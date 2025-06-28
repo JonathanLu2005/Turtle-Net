@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <memory>
 #include <boost/spirit/include/qi.hpp>
 #include <boost/phoenix.hpp>
 
@@ -80,12 +81,8 @@ public:
     TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
     : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
 
-    void PenUp() {
-        PenDown = true;
-    }
-
-    void PenDown() {
-        PenDown = false;
+    void PenState(bool CurrentPen) {
+        PenDown = CurrentPen;
     }
 
     void MovePosition(float Distance) {
@@ -93,18 +90,90 @@ public:
         Y = Distance * sin(Distance * 3.14/180);
     }
 
-    void TurnLeft(float Angle) {
-        Direction -= Angle;
+    void Turn(float Angle) {
+        Direction += Angle;
 
-        if (Direction < 0) {
+        if (Direction < 0) { 
             Direction += 360;
-        }
-    }
-
-    void TurnRight(float Angle) {
-        Direction = (Direction + Angle) % 360;
+        } 
+        Direction = Direction % 360;
     }
 }
+
+// AST nodes
+// Abstract node as template
+class ASTNode {
+public:
+    virtual ~ASTNode() = default;
+    virtual void Execute() = 0;
+};
+
+// Movement node
+class MovementNode : public ASTNode {
+    float Steps;
+
+public:
+    MovementNode(float Steps) : Steps(Steps) {}
+
+    float GetSteps() const { return Steps; }
+
+    void Execute() override {
+        MovePosition(Steps);
+    }
+};
+
+// Direction node
+class DirectionNode : public ASTNode {
+    float Angle;
+
+public:
+    DirectionNode(float Angle) : Angle(Angle) {}
+
+    float GetAngle() const { return Angle; }
+
+    void Execute() override {
+        Turn(Angle);
+    }
+};
+
+// Pen node
+class PenNode : public ASTNode {
+    bool PenInUse;
+
+public:
+    PenNode(bool PenInUse) : PenInUse(PenInUse) {}
+
+    bool GetPenStatus() const { return PenInUse; }
+
+    void Execute() override {
+        PenState(PenInUse);
+    }
+};
+
+// Loop node
+class LoopNode : public ASTNode {
+    int Iterations;
+    std::vector<std::unique_ptr<ASTNode>> Commands;
+
+public:
+    LoopNode(int Iterations) : Iterations(Iterations) {}
+
+    void AddCommand(std::unique_ptr<ASTNode> NewCommand) {
+        Commands.push_back(NewCommand);
+    }
+
+    int GetIterations() const { return Iterations; }
+    const std::vector<std::unique_ptr<ASTNode>>& GetCommands() const { return Commands; }
+
+    void Execute() override {
+        for (int i = 0; i < Iterations; i++) {
+            for (const auto& Command : Commands) {
+                Command->Execute();
+            }
+        }
+    }
+};
+
 
 // Main
 int main() {
