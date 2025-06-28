@@ -68,6 +68,44 @@ public:
     }
 };
 
+class TurtleState {
+public:
+    // Attributes
+    float X;
+    float Y;
+    float Direction;
+    bool PenDown;
+
+    // Instantiator
+    TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
+    : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
+
+    void PenUp() {
+        PenDown = true;
+    }
+
+    void PenDown() {
+        PenDown = false;
+    }
+
+    void MovePosition(float Distance) {
+        X = Distance * cos(Distance * 3.14/180);
+        Y = Distance * sin(Distance * 3.14/180);
+    }
+
+    void TurnLeft(float Angle) {
+        Direction -= Angle;
+
+        if (Direction < 0) {
+            Direction += 360;
+        }
+    }
+
+    void TurnRight(float Angle) {
+        Direction = (Direction + Angle) % 360;
+    }
+}
+
 // Main
 int main() {
     // Receive file path
@@ -90,6 +128,9 @@ int main() {
         std::cerr << "Error: Unable to open file" << std::endl;
         return 1;
     }
+
+    // Instantiate Turtle State
+    TurtleState MyTurtle(0,0,0,true);
 
     // Instantiate parser
     LogoParser Parser;
