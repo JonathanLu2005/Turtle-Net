@@ -30,6 +30,9 @@ enum TokenType {
 // Parser
 class LogoParser {
 public:
+    // Creates AST Tree
+    std::vector<std::unique_ptr<ASTNode>> ASTTree;
+
     using Iterator = std::string::const_iterator;
 
     // Grammars
@@ -57,15 +60,77 @@ public:
         Value = qi::float_;
         Comment = qi::lexeme[';' >> *(qi::char_ - '\n')];
 
+        MovementCommand = (Movement >> Value)[
+            [&](auto& ctx) {
+                std::string MoveType = qi::_1(ctx);
+                float Steps = qi::_2(ctx);
 
-        MovementCommand = Movement >> Value;
-        DirectionCommand = Direction >> Value;
-        PenCommand = Pen;
-        OriginCommand = Origin;
-        LoopCommand = qi::lit("repeat") >> Value >> qi::lit('[') >> +Command >> qi::lit(']');
+                if (MoveType == "forward") {
+                    ASTTree.push_back(std::make_unique<MovementNode>(Steps));
+                } else {
+                    ASTTree.push_back(std::make_unique<MovementNode>(-Steps));
+                }
+            }
+        ];
+
+        DirectionCommand = (Direction >> Value)[
+            [&](auto& ctx) {
+                std::string DirectionType = qi::_1(ctx);
+                float Angle = qi::_2(ctx);
+
+                if (DirectionType == "right") {
+                    ASTTree.push_back(std::make_unique<DirectionNode>(Angle));
+                } else {
+                    ASTTree.push_back(std::make_unique<DirectionNode>(-Angle));
+                }
+            }
+        ];
+
+        PenCommand = (Pen)[
+            [&](auto& ctx) {
+                std::string PenState = qi::_1(ctx);
+
+                if (PenState == "pendown") {
+                    ASTTree.push_back(std::make_unique<PenNode>(true));
+                } else {
+                    ASTTree.push_back(std::make_unique<PenNode>(false));
+                }
+            }
+        ];
+
+        OriginCommand = (Origin)[
+            [&](auto& ctx) {
+                std::string OriginState = qi::_1(ctx);
+
+                if (OriginState == "clearscreen") {
+                    ASTTree.push_back(std::make_unique<OriginNode>(true, &ASTTree));
+                } else {
+                    ASTTree.push_back(std::make_unique<OriginNode>(false, &ASTTree));
+                }
+            }
+        ];
+
+        LoopCommand = (qi::lit("repeat") >> Value >> qi::lit('[') >> +Command >> qi::lit(']'))[
+            [&](auto& ctx) {
+                float Iterations = qi::_1(ctx);
+                auto LoopNode = std::make_unique<LoopNode>(Iterations);
+
+                for (const auto& Command : qi::_2(ctx)) {
+                    LoopNode->AddCommand(std::move(Command));
+                }
+
+                ASTTree.push_back(std::move(LoopNode));
+            }
+        ];
+
         CommentCommand = Comment;
         Command = MovementCommand | DirectionCommand | PenCommand | OriginCommand | LoopCommand | CommentCommand;
         Program = +Command;
+    }
+
+    // Returns AST Tree
+    const std::vector<std::unique_ptr<ASTNode>>& GetAST() const {
+        return ASTTree;
     }
 };
 
@@ -80,6 +145,11 @@ public:
     // Instantiator
     TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
     : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
+
+    void Origin() {
+        X = 0;
+        Y = 0;
+    }
 
     void PenState(bool CurrentPen) {
         PenDown = CurrentPen;
@@ -174,6 +244,25 @@ public:
     }
 };
 
+// Origin node
+class OriginNode : public ASTNode {
+    bool ClearScreen;
+    std::vector<std::unique_ptr<ASTNode>>* ASTTree;
+
+public:
+    OriginNode(bool ClearScreen, std::vector<std::unique_ptr<ASTNode>>* ASTTree) : ClearScreen(ClearScreen), ASTTree(ASTTree) {}
+
+    bool GetClearScreen() const { return ClearScreen; }
+
+    void Execute() override {
+        if (ClearScreen) {
+            if (ASTTree) {
+                ASTTree->clear();
+            }
+        }
+        Origin();
+    }
+}
 
 // Main
 int main() {
