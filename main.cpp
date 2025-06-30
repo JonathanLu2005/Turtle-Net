@@ -8,6 +8,159 @@
 #include <boost/spirit/include/qi.hpp>
 #include <boost/phoenix.hpp>
 
+class TurtleState {
+public:
+    // Attributes
+    float X;
+    float Y;
+    float Direction;
+    bool PenDown;
+
+    // Instantiator
+    TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
+    : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
+
+    void Origin() {
+        X = 0;
+        Y = 0;
+    }
+
+    void PenState(bool CurrentPen) {
+        PenDown = CurrentPen;
+    }
+
+    void MovePosition(float Distance) {
+        X += Distance * cos((Distance * 3.14)/180);
+        Y += Distance * sin((Distance * 3.14)/180);
+    }
+
+    void Turn(float Angle) {
+        Direction += Angle;
+
+        if (Direction < 0) { 
+            Direction += 360;
+        } 
+        Direction = std::fmod(Direction, 360.0f);
+    }
+};
+
+// AST nodes
+// Abstract node as template
+class ASTNode {
+public:
+    virtual ~ASTNode() = default;
+    virtual void Execute(TurtleState& Turtle) = 0;
+    virtual std::string ToString() const = 0;
+};
+
+// Movement node
+class MovementNode : public ASTNode {
+    float Steps;
+
+public:
+    MovementNode(float Steps) : Steps(Steps) {}
+
+    float GetSteps() const { return Steps; }
+
+    void Execute(TurtleState& Turtle) override {
+        Turtle.MovePosition(Steps);
+    }
+
+    std::string ToString() const override {
+        return "MovementNode: " + std::to_string(Steps);
+    }
+};
+
+// Direction node
+class DirectionNode : public ASTNode {
+    float Angle;
+
+public:
+    DirectionNode(float Angle) : Angle(Angle) {}
+
+    float GetAngle() const { return Angle; }
+
+    void Execute(TurtleState& Turtle) override {
+        Turtle.Turn(Angle);
+    }
+
+    std::string ToString() const override {
+        return "DirectionNode: " + std::to_string(Angle);
+    }
+};
+
+// Pen node
+class PenNode : public ASTNode {
+    bool PenInUse;
+
+public:
+    PenNode(bool PenInUse) : PenInUse(PenInUse) {}
+
+    bool GetPenStatus() const { return PenInUse; }
+
+    void Execute(TurtleState& Turtle) override {
+        Turtle.PenState(PenInUse);
+    }
+
+    std::string ToString() const override {
+        return "PenNode: " + std::string(PenInUse ? "Down" : "Up");
+    }
+};
+
+// Loop node
+class LoopNode : public ASTNode {
+    int Iterations;
+    std::vector<std::shared_ptr<ASTNode>> Commands;
+
+public:
+    LoopNode(int Iterations) : Iterations(Iterations) {}
+
+    void AddCommand(std::shared_ptr<ASTNode> NewCommand) {
+        Commands.push_back(std::move(NewCommand));
+    }
+
+    int GetIterations() const { return Iterations; }
+    const std::vector<std::shared_ptr<ASTNode>>& GetCommands() const { return Commands; }
+
+    void Execute(TurtleState& Turtle) override {
+        for (int i = 0; i < Iterations; i++) {
+            for (auto& Command : Commands) {
+                Command->Execute(Turtle);
+            }
+        }
+    }
+
+    std::string ToString() const override {
+        std::string Format = "IterationNodes: " + std::to_string(Iterations) + " [";
+
+        for (const auto& Command : Commands) {
+            Format += "\n  " + Command->ToString();
+        }
+        Format += "\n]";
+
+        return Format;
+    }
+};
+
+// Origin node
+class OriginNode : public ASTNode {
+    bool ClearScreen;
+
+public:
+    OriginNode(bool ClearScreen) : ClearScreen(ClearScreen) {}
+
+    bool GetClearScreen() const { return ClearScreen; }
+
+    void Execute(TurtleState& Turtle) override {
+        std::cout << "." << std::endl;
+    }
+
+    std::string ToString() const override {
+        return "OriginNode: " + std::string(ClearScreen ? "Clear Screen" : "Home");
+    }
+};
+
+
 // Namespaces
 namespace qi = boost::spirit::qi;
 namespace ascii = boost::spirit::ascii;
@@ -31,7 +184,7 @@ enum TokenType {
 class LogoParser {
 public:
     // Creates AST Tree
-    std::vector<std::unique_ptr<ASTNode>> ASTTree;
+    std::vector<std::shared_ptr<ASTNode>> ASTTree;
 
     using Iterator = std::string::const_iterator;
 
@@ -49,7 +202,9 @@ public:
     qi::rule<Iterator, ascii::space_type> OriginCommand;
     qi::rule<Iterator, ascii::space_type> LoopCommand;
     qi::rule<Iterator, ascii::space_type> CommentCommand;
-    qi::rule<Iterator, ascii::space_type> Command;
+    //qi::rule<Iterator, ascii::space_type> Command;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> Command;
+    qi::rule<Iterator, std::vector<std::shared_ptr<ASTNode>>(), ascii::space_type> Commands; 
     qi::rule<Iterator, ascii::space_type> Program;
 
     LogoParser () {
@@ -59,69 +214,54 @@ public:
         Origin = qi::lit("clearscreen") | "home";
         Value = qi::float_;
         Comment = qi::lexeme[';' >> *(qi::char_ - '\n')];
-
-        MovementCommand = (Movement >> Value)[
-            [&](auto& ctx) {
-                std::string MoveType = qi::_1(ctx);
-                float Steps = qi::_2(ctx);
-
-                if (MoveType == "forward") {
-                    ASTTree.push_back(std::make_unique<MovementNode>(Steps));
-                } else {
-                    ASTTree.push_back(std::make_unique<MovementNode>(-Steps));
-                }
-            }
+        
+        MovementCommand = (Movement >> Value) [
+            qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
+                boost::phoenix::new_<MovementNode>(
+                    boost::phoenix::if_else(qi::_1 == "forward", qi::_2, -qi::_2)
+                )
+            )
         ];
 
-        DirectionCommand = (Direction >> Value)[
-            [&](auto& ctx) {
-                std::string DirectionType = qi::_1(ctx);
-                float Angle = qi::_2(ctx);
-
-                if (DirectionType == "right") {
-                    ASTTree.push_back(std::make_unique<DirectionNode>(Angle));
-                } else {
-                    ASTTree.push_back(std::make_unique<DirectionNode>(-Angle));
-                }
-            }
+        DirectionCommand = (Direction >> Value) [
+            qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
+                boost::phoenix::new_<DirectionNode>(
+                    boost::phoenix::if_else(qi::_1 == "right", qi::_2, -qi::_2)
+                )
+            )
         ];
 
-        PenCommand = (Pen)[
-            [&](auto& ctx) {
-                std::string PenState = qi::_1(ctx);
-
-                if (PenState == "pendown") {
-                    ASTTree.push_back(std::make_unique<PenNode>(true));
-                } else {
-                    ASTTree.push_back(std::make_unique<PenNode>(false));
-                }
-            }
+        PenCommand = (Pen) [
+            qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
+                boost::phoenix::new_<PenNode>(
+                    boost::phoenix::if_else(qi::_1 == "pendown", true, false)
+                )
+            )
         ];
 
-        OriginCommand = (Origin)[
-            [&](auto& ctx) {
-                std::string OriginState = qi::_1(ctx);
-
-                if (OriginState == "clearscreen") {
-                    ASTTree.push_back(std::make_unique<OriginNode>(true, &ASTTree));
-                } else {
-                    ASTTree.push_back(std::make_unique<OriginNode>(false, &ASTTree));
-                }
-            }
+        OriginCommand = (Origin) [
+            qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
+                boost::phoenix::new_<OriginNode>(
+                    boost::phoenix::if_else(qi::_1 == "clearscreen", true, false)
+                )
+            )
         ];
 
-        LoopCommand = (qi::lit("repeat") >> Value >> qi::lit('[') >> +Command >> qi::lit(']'))[
-            [&](auto& ctx) {
-                float Iterations = qi::_1(ctx);
-                auto LoopNode = std::make_unique<LoopNode>(Iterations);
+        LoopCommand = (qi::lit("repeat") >> Value >> qi::lit('[') >> +Command >> qi::lit(']')) [
+            boost::phoenix::bind(
+                [](auto& val, float Iterations, std::vector<std::shared_ptr<ASTNode>>& Commands) {
+                    auto Loop = std::make_shared<LoopNode>(static_cast<int>(Iterations));
 
-                for (const auto& Command : qi::_2(ctx)) {
-                    LoopNode->AddCommand(std::move(Command));
-                }
+                    for (auto& Command : Commands) {
+                        Loop->AddCommand(Command);
+                    }
 
-                ASTTree.push_back(std::move(LoopNode));
-            }
+                    val = Loop;
+                },
+                qi::_val, qi::_1, qi::_2
+            )
         ];
+        
 
         CommentCommand = Comment;
         Command = MovementCommand | DirectionCommand | PenCommand | OriginCommand | LoopCommand | CommentCommand;
@@ -129,140 +269,10 @@ public:
     }
 
     // Returns AST Tree
-    const std::vector<std::unique_ptr<ASTNode>>& GetAST() const {
+    const std::vector<std::shared_ptr<ASTNode>>& GetAST() const {
         return ASTTree;
     }
 };
-
-class TurtleState {
-public:
-    // Attributes
-    float X;
-    float Y;
-    float Direction;
-    bool PenDown;
-
-    // Instantiator
-    TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
-    : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
-
-    void Origin() {
-        X = 0;
-        Y = 0;
-    }
-
-    void PenState(bool CurrentPen) {
-        PenDown = CurrentPen;
-    }
-
-    void MovePosition(float Distance) {
-        X = Distance * cos(Distance * 3.14/180);
-        Y = Distance * sin(Distance * 3.14/180);
-    }
-
-    void Turn(float Angle) {
-        Direction += Angle;
-
-        if (Direction < 0) { 
-            Direction += 360;
-        } 
-        Direction = Direction % 360;
-    }
-}
-
-// AST nodes
-// Abstract node as template
-class ASTNode {
-public:
-    virtual ~ASTNode() = default;
-    virtual void Execute() = 0;
-};
-
-// Movement node
-class MovementNode : public ASTNode {
-    float Steps;
-
-public:
-    MovementNode(float Steps) : Steps(Steps) {}
-
-    float GetSteps() const { return Steps; }
-
-    void Execute() override {
-        MovePosition(Steps);
-    }
-};
-
-// Direction node
-class DirectionNode : public ASTNode {
-    float Angle;
-
-public:
-    DirectionNode(float Angle) : Angle(Angle) {}
-
-    float GetAngle() const { return Angle; }
-
-    void Execute() override {
-        Turn(Angle);
-    }
-};
-
-// Pen node
-class PenNode : public ASTNode {
-    bool PenInUse;
-
-public:
-    PenNode(bool PenInUse) : PenInUse(PenInUse) {}
-
-    bool GetPenStatus() const { return PenInUse; }
-
-    void Execute() override {
-        PenState(PenInUse);
-    }
-};
-
-// Loop node
-class LoopNode : public ASTNode {
-    int Iterations;
-    std::vector<std::unique_ptr<ASTNode>> Commands;
-
-public:
-    LoopNode(int Iterations) : Iterations(Iterations) {}
-
-    void AddCommand(std::unique_ptr<ASTNode> NewCommand) {
-        Commands.push_back(NewCommand);
-    }
-
-    int GetIterations() const { return Iterations; }
-    const std::vector<std::unique_ptr<ASTNode>>& GetCommands() const { return Commands; }
-
-    void Execute() override {
-        for (int i = 0; i < Iterations; i++) {
-            for (const auto& Command : Commands) {
-                Command->Execute();
-            }
-        }
-    }
-};
-
-// Origin node
-class OriginNode : public ASTNode {
-    bool ClearScreen;
-    std::vector<std::unique_ptr<ASTNode>>* ASTTree;
-
-public:
-    OriginNode(bool ClearScreen, std::vector<std::unique_ptr<ASTNode>>* ASTTree) : ClearScreen(ClearScreen), ASTTree(ASTTree) {}
-
-    bool GetClearScreen() const { return ClearScreen; }
-
-    void Execute() override {
-        if (ClearScreen) {
-            if (ASTTree) {
-                ASTTree->clear();
-            }
-        }
-        Origin();
-    }
-}
 
 // Main
 int main() {
@@ -299,6 +309,10 @@ int main() {
 
     if (ParseResult && First == Last) {
         std::cout << "Success" << std::endl;
+
+        for (const auto& Node : Parser.GetAST()) {
+            std::cout << Node->ToString() << std::endl;
+        }
     } else {
         std::cerr << "Fail" << std::endl;
     }
