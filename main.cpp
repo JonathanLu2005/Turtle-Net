@@ -151,12 +151,26 @@ public:
 
     bool GetClearScreen() const { return ClearScreen; }
 
-    void Execute(TurtleState& Turtle) override {
-        std::cout << "." << std::endl;
-    }
+    void Execute(TurtleState& Turtle) override {}
 
     std::string ToString() const override {
         return "OriginNode: " + std::string(ClearScreen ? "Clear Screen" : "Home");
+    }
+};
+
+// Comment node
+class CommentNode : public ASTNode {
+    std::string Comment;
+
+public:
+    CommentNode(const std::string& Comment) : Comment(Comment) {}
+
+    std::string GetComment() const { return Comment; }
+
+    void Execute(TurtleState& Turtle) override {}
+
+    std::string ToString() const override {
+        return "CommentNode: " + Comment;
     }
 };
 
@@ -196,16 +210,15 @@ public:
     qi::rule<Iterator, float(), ascii::space_type> Value;
     qi::rule<Iterator, std::string(), ascii::space_type> Comment;
 
-    qi::rule<Iterator, ascii::space_type> MovementCommand;
-    qi::rule<Iterator, ascii::space_type> DirectionCommand;
-    qi::rule<Iterator, ascii::space_type> PenCommand;
-    qi::rule<Iterator, ascii::space_type> OriginCommand;
-    qi::rule<Iterator, ascii::space_type> LoopCommand;
-    qi::rule<Iterator, ascii::space_type> CommentCommand;
-    //qi::rule<Iterator, ascii::space_type> Command;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> MovementCommand;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> DirectionCommand;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> PenCommand;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> OriginCommand;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> LoopCommand;
+    qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> CommentCommand;
     qi::rule<Iterator, std::shared_ptr<ASTNode>(), ascii::space_type> Command;
     qi::rule<Iterator, std::vector<std::shared_ptr<ASTNode>>(), ascii::space_type> Commands; 
-    qi::rule<Iterator, ascii::space_type> Program;
+    qi::rule<Iterator, std::vector<std::shared_ptr<ASTNode>>(), ascii::space_type> Program;
 
     LogoParser () {
         Movement = qi::lit("forward") | "back";
@@ -216,6 +229,7 @@ public:
         Comment = qi::lexeme[';' >> *(qi::char_ - '\n')];
         
         MovementCommand = (Movement >> Value) [
+            //boost::phoenix::bind([](float s) { std::cout << "Parsed movement: " << s << std::endl; }, qi::_2),
             qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
                 boost::phoenix::new_<MovementNode>(
                     boost::phoenix::if_else(qi::_1 == "forward", qi::_2, -qi::_2)
@@ -261,9 +275,13 @@ public:
                 qi::_val, qi::_1, qi::_2
             )
         ];
-        
 
-        CommentCommand = Comment;
+        CommentCommand = (Comment) [
+            qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
+                boost::phoenix::new_<CommentNode>(qi::_1)
+            )
+        ];
+        
         Command = MovementCommand | DirectionCommand | PenCommand | OriginCommand | LoopCommand | CommentCommand;
         Program = +Command;
     }
@@ -297,6 +315,8 @@ int main() {
         return 1;
     }
 
+    std::cout << "Input: " << LogoCode << std::endl;
+
     // Instantiate Turtle State
     TurtleState MyTurtle(0,0,0,true);
 
@@ -304,14 +324,19 @@ int main() {
     LogoParser Parser;
     LogoParser::Iterator First = LogoCode.begin();
     LogoParser::Iterator Last = LogoCode.end();
+    std::vector<std::shared_ptr<ASTNode>> AST;
     // Parse
-    bool ParseResult = qi::phrase_parse(First,Last,Parser.Program >> qi::eoi, ascii::space);
+    bool ParseResult = qi::phrase_parse(First,Last,Parser.Program >> qi::eoi, ascii::space, AST);
 
     if (ParseResult && First == Last) {
+        Parser.ASTTree = std::move(AST);
         std::cout << "Success" << std::endl;
+        std::cout << "AST size: " << AST.size() << std::endl;
 
         for (const auto& Node : Parser.GetAST()) {
-            std::cout << Node->ToString() << std::endl;
+            if (Node) {
+                std::cout << Node->ToString() << std::endl;
+            }
         }
     } else {
         std::cerr << "Fail" << std::endl;
