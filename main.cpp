@@ -7,6 +7,9 @@
 #include <memory>
 #include <boost/spirit/include/qi.hpp>
 #include <boost/phoenix.hpp>
+#define SFML_STATIC
+#include <SFML/Graphics.hpp>
+#include <optional>
 
 class TurtleState {
 public:
@@ -335,8 +338,25 @@ int main() {
                 std::cout << Node->ToString() << std::endl;
             }
         }
+
+        std::cout << std::to_string(MyTurtle.X) << std::endl;
+        std::cout << std::to_string(MyTurtle.Y) << std::endl;
+        std::cout << std::to_string(MyTurtle.Direction) << std::endl;
     } else {
         std::cerr << "Fail" << std::endl;
+    }
+
+    sf::RenderWindow window(sf::VideoMode({800,600}), "sfml works!");
+    while (window.isOpen()) {
+        while (auto eventOpt = window.pollEvent()) {
+            const sf::Event& event = *eventOpt;
+
+            if (event.is<sf::Event::Closed>()) {
+                window.close();
+            }
+        }
+        window.clear();
+        window.display();
     }
 
     return 0;
