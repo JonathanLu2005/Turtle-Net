@@ -221,15 +221,14 @@ public:
     qi::rule<Iterator, std::vector<std::shared_ptr<ASTNode>>(), ascii::space_type> Program;
 
     LogoParser () {
-        Movement = qi::lit("forward") | "back";
-        Direction = qi::lit("left") | "right";
-        Pen = qi::lit("penup") | "pendown";
-        Origin = qi::lit("clearscreen") | "home";
+        Movement = qi::string("forward") | qi::string("back");
+        Direction = qi::string("left") | qi::string("right");
+        Pen = qi::string("penup") | qi::string("pendown");
+        Origin = qi::string("clearscreen") | qi::string("home");
         Value = qi::float_;
         Comment = qi::lexeme[';' >> *(qi::char_ - '\n')];
         
         MovementCommand = (Movement >> Value) [
-            //boost::phoenix::bind([](float s) { std::cout << "Parsed movement: " << s << std::endl; }, qi::_2),
             qi::_val = boost::phoenix::construct<std::shared_ptr<ASTNode>>(
                 boost::phoenix::new_<MovementNode>(
                     boost::phoenix::if_else(qi::_1 == "forward", qi::_2, -qi::_2)
@@ -314,8 +313,6 @@ int main() {
         std::cerr << "Error: Unable to open file" << std::endl;
         return 1;
     }
-
-    std::cout << "Input: " << LogoCode << std::endl;
 
     // Instantiate Turtle State
     TurtleState MyTurtle(0,0,0,true);
