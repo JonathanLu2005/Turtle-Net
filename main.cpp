@@ -11,21 +11,40 @@
 #include <SFML/Graphics.hpp>
 #include <optional>
 
+struct DrawnLines {
+    sf::Vector2f LineStart;
+    sf::Vector2f LineEnd;
+};
+std::vector<DrawnLines> Lines;
+
+const float WindowWidth = 800;
+const float WindowHeight = 600;
+
 class TurtleState {
 public:
     // Attributes
-    float X;
-    float Y;
+    std::vector<DrawnLines>* ImageLines;
+    float PreviousX;
+    float PreviousY;
+    float CurrentX;
+    float CurrentY;
     float Direction;
     bool PenDown;
 
     // Instantiator
-    TurtleState(float StartingX = 0, float StartingY = 0, float StartingDirection = 0, bool StartingPenDown = true)
-    : X(StartingX), Y(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
+    TurtleState(float PastX = WindowWidth / 2.0f, float PastY = WindowHeight / 2.0f, float StartingX = WindowWidth / 2.0f, float StartingY = WindowHeight / 2.0f, float StartingDirection = 0, bool StartingPenDown = true)
+    : PreviousX(PastX), PreviousY(PastY), CurrentX(StartingX), CurrentY(StartingY), Direction(StartingDirection), PenDown(StartingPenDown) {}
 
     void Origin() {
-        X = 0;
-        Y = 0;
+        PreviousX = WindowWidth / 2.0f;
+        PreviousY = WindowHeight / 2.0f;
+        CurrentX = WindowWidth / 2.0f;
+        CurrentY = WindowHeight / 2.0f;
+        Direction = 0;
+    }
+
+    void ClearScreen() {
+        ImageLines->clear();
     }
 
     void PenState(bool CurrentPen) {
@@ -33,8 +52,14 @@ public:
     }
 
     void MovePosition(float Distance) {
-        X += Distance * cos((Distance * 3.14)/180);
-        Y += Distance * sin((Distance * 3.14)/180);
+        PreviousX = CurrentX;
+        PreviousY = CurrentY;
+        CurrentX += Distance * sin((Direction * 3.14)/180);
+        CurrentY -= Distance * cos((Direction * 3.14)/180);
+
+        if (ImageLines && PenDown) {
+            ImageLines->push_back({sf::Vector2f(PreviousX, PreviousY), sf::Vector2f(CurrentX, CurrentY)});
+        }
     }
 
     void Turn(float Angle) {
@@ -154,7 +179,13 @@ public:
 
     bool GetClearScreen() const { return ClearScreen; }
 
-    void Execute(TurtleState& Turtle) override {}
+    void Execute(TurtleState& Turtle) override {
+        Turtle.Origin();
+
+        if (ClearScreen) {
+            Turtle.ClearScreen();
+        }
+    }
 
     std::string ToString() const override {
         return "OriginNode: " + std::string(ClearScreen ? "Clear Screen" : "Home");
@@ -318,7 +349,8 @@ int main() {
     }
 
     // Instantiate Turtle State
-    TurtleState MyTurtle(0,0,0,true);
+    TurtleState MyTurtle(WindowWidth / 2.0f, WindowHeight / 2.0f, WindowWidth / 2.0f, WindowHeight / 2.0f,0,true);
+    MyTurtle.ImageLines = &Lines;
 
     // Instantiate parser
     LogoParser Parser;
@@ -330,33 +362,30 @@ int main() {
 
     if (ParseResult && First == Last) {
         Parser.ASTTree = std::move(AST);
-        std::cout << "Success" << std::endl;
-        std::cout << "AST size: " << AST.size() << std::endl;
 
         for (const auto& Node : Parser.GetAST()) {
             if (Node) {
-                std::cout << Node->ToString() << std::endl;
+                Node->Execute(MyTurtle);
+                //std::cout << Node->ToString() << std::endl;
             }
         }
 
-        std::cout << std::to_string(MyTurtle.X) << std::endl;
-        std::cout << std::to_string(MyTurtle.Y) << std::endl;
-        std::cout << std::to_string(MyTurtle.Direction) << std::endl;
+        sf::RenderWindow window(sf::VideoMode({800,600}), "TurtleNet Image");
+        while (window.isOpen()) {
+            window.clear();
+
+            for (const auto& Line : Lines) {
+                sf::Vertex Vertices[2];
+                Vertices[0].position = Line.LineStart;
+                Vertices[1].position = Line.LineEnd;
+                window.draw(Vertices, 2, sf::PrimitiveType::Lines);
+            }
+
+            window.display();
+        }
+
     } else {
         std::cerr << "Fail" << std::endl;
-    }
-
-    sf::RenderWindow window(sf::VideoMode({800,600}), "sfml works!");
-    while (window.isOpen()) {
-        while (auto eventOpt = window.pollEvent()) {
-            const sf::Event& event = *eventOpt;
-
-            if (event.is<sf::Event::Closed>()) {
-                window.close();
-            }
-        }
-        window.clear();
-        window.display();
     }
 
     return 0;
