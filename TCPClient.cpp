@@ -21,38 +21,6 @@ constexpr unsigned int WindowHeight = 600;
 
 #define PORT 12345
 
-bool SendAll(int Sock, const char* Data, size_t Length) {
-    size_t TotalSent = 0;
-    std::cout << "[SendAll] Want to send " << Length << " bytes" << std::endl;
-    while (TotalSent < Length) {
-        int Sent = send(Sock, Data + TotalSent, static_cast<int>(Length - TotalSent), 0);
-        if (Sent <= 0) {
-            std::cerr << "[SendAll] Error or connection closed after sending " << TotalSent << " bytes" << std::endl;
-            return false;
-        }
-        std::cout << "[SendAll] Sent " << Sent << " bytes (Total: " << (TotalSent + Sent) << "/" << Length << ")" << std::endl;
-        TotalSent += Sent;
-    }
-    std::cout << "[SendAll] Finished sending " << TotalSent << " bytes" << std::endl;
-    return true;
-}
-
-bool ReceiveAll(int Sock, char* Data, size_t Length) {
-    size_t TotalReceived = 0;
-    std::cout << "[ReceiveAll] Want to receive " << Length << " bytes" << std::endl;
-    while (TotalReceived < Length) {
-        int Received = recv(Sock, Data + TotalReceived, static_cast<int>(Length - TotalReceived), 0);
-        if (Received <= 0) {
-            std::cerr << "[ReceiveAll] Error or connection closed after receiving " << TotalReceived << " bytes" << std::endl;
-            return false;
-        }
-        std::cout << "[ReceiveAll] Received " << Received << " bytes (Total: " << (TotalReceived + Received) << "/" << Length << ")" << std::endl;
-        TotalReceived += Received;
-    }
-    std::cout << "[ReceiveAll] Finished receiving " << TotalReceived << " bytes" << std::endl;
-    return true;
-}
-
 struct DrawnLines {
     sf::Vector2f LineStart;
     sf::Vector2f LineEnd;
@@ -60,34 +28,21 @@ struct DrawnLines {
 
 
 void SendCode(int Sock, const std::string& LogoCode) {
-    uint32_t Length = htonl(LogoCode.size());
-
-    if (!SendAll(Sock, (const char*)&Length, sizeof(Length))) {
-        return;
-    }
-
-    if (!SendAll(Sock, LogoCode.data(), LogoCode.size())) {
-        return;
-    }
+    uint32_t Length = htonl(static_cast<uint32_t>(LogoCode.size()));
+    send(Sock, (const char*)&Length, sizeof(Length),0);
+    send(Sock, LogoCode.data(), LogoCode.size(), 0);
 }
 
 std::vector<DrawnLines> ReceiveLinesFromServer(int Sock) {
     uint32_t Count;
-
-    if (!ReceiveAll(Sock, (char*)&Count, sizeof(Count))) {
-        return {};
-    }
+    recv(Sock, (char*)&Count, sizeof(Count), 0);
 
     Count = ntohl(Count);
     std::vector<DrawnLines> Lines(Count);
 
     for (uint32_t i = 0; i < Count; ++i) {
         float Coords[4];
-
-        if (!ReceiveAll(Sock, (char*)Coords, sizeof(Coords))) {
-            return {};
-        }
-
+        recv(Sock, (char*)Coords, sizeof(Coords), 0);
         Lines[i].LineStart.x = Coords[0];
         Lines[i].LineStart.y = Coords[1];
         Lines[i].LineEnd.x = Coords[2];
@@ -111,8 +66,6 @@ int main() {
 #else 
     socket(AF_INET, SOCK_STREAM, 0);
 #endif
-
-
 
     sockaddr_in ServerAddress{};
     ServerAddress.sin_family = AF_INET;
