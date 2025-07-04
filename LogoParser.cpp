@@ -1,23 +1,5 @@
 #include "LogoParser.hpp"
 
-// Token types
-/*
-enum TokenType {
-    MOVEMENT,   
-    DIRECTION,
-    PEN,
-    LOOP,
-    ORIGIN,
-    VALUE,
-    COMMENT,
-    PLAINTEXT,
-    WHITESPACE,
-    OPEN,
-    CLOSE
-};
-*/
-
-
 LogoParser::LogoParser () {
     Movement = qi::string("forward") | qi::string("back");
     Direction = qi::string("left") | qi::string("right");
