@@ -15,6 +15,8 @@
 #include <fstream>
 #define SFML_STATIC
 #include <SFML/Graphics.hpp>
+#include <immintrin.h>
+#include <vector>
 
 constexpr unsigned int WindowWidth = 800;
 constexpr unsigned int WindowHeight = 600;
@@ -40,14 +42,59 @@ std::vector<DrawnLines> ReceiveLinesFromServer(int Sock) {
     Count = ntohl(Count);
     std::vector<DrawnLines> Lines(Count);
 
-    for (uint32_t i = 0; i < Count; ++i) {
-        float Coords[4];
-        recv(Sock, (char*)Coords, sizeof(Coords), 0);
-        Lines[i].LineStart.x = Coords[0];
-        Lines[i].LineStart.y = Coords[1];
-        Lines[i].LineEnd.x = Coords[2];
-        Lines[i].LineEnd.y = Coords[3];
+    std::vector<float> Coords(Count * 4);
+    size_t TotalBytes = Count * 4 * sizeof(float);
+    size_t BytesReceived = 0;
+    char* Buffer = (char*)Coords.data();
+    while (BytesReceived < TotalBytes) {
+        int Retrieve = recv(Sock, Buffer + BytesReceived, TotalBytes - BytesReceived, 0);
+        if (Retrieve <= 0) {
+            break;
+        }
+        BytesReceived += Retrieve;
     }
+
+    size_t i = 0;
+
+    for (; i + 3 < Count; i += 4) {
+        __m128 X0 = _mm_loadu_ps(&Coords[(i+0) * 4]);
+        __m128 X1 = _mm_loadu_ps(&Coords[(i+1) * 4]);
+        __m128 X2 = _mm_loadu_ps(&Coords[(i+2) * 4]);
+        __m128 X3 = _mm_loadu_ps(&Coords[(i+3) * 4]);
+
+        float Temp[4];
+        _mm_storeu_ps(Temp, X0);
+        Lines[i+0].LineStart.x = Temp[0];
+        Lines[i+0].LineStart.y = Temp[1];
+        Lines[i+0].LineEnd.x = Temp[2];
+        Lines[i+0].LineEnd.y = Temp[3];
+
+        _mm_storeu_ps(Temp, X1);
+        Lines[i+1].LineStart.x = Temp[0];
+        Lines[i+1].LineStart.y = Temp[1];
+        Lines[i+1].LineEnd.x = Temp[2];
+        Lines[i+1].LineEnd.y = Temp[3];
+
+        _mm_storeu_ps(Temp, X2);
+        Lines[i+2].LineStart.x = Temp[0];
+        Lines[i+2].LineStart.y = Temp[1];
+        Lines[i+2].LineEnd.x = Temp[2];
+        Lines[i+2].LineEnd.y = Temp[3];
+
+        _mm_storeu_ps(Temp, X3);
+        Lines[i+3].LineStart.x = Temp[0];
+        Lines[i+3].LineStart.y = Temp[1];
+        Lines[i+3].LineEnd.x = Temp[2];
+        Lines[i+3].LineEnd.y = Temp[3];
+    }
+
+    for (; i < Count; ++i) {
+        Lines[i].LineStart.x = Coords[(i*4) + 0];
+        Lines[i].LineStart.y = Coords[(i*4) + 1];
+        Lines[i].LineEnd.x = Coords[(i*4) + 2];
+        Lines[i].LineEnd.y = Coords[(i*4) + 3];
+    }
+
     return Lines;
 }
 
